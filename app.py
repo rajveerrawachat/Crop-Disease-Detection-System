@@ -1,15 +1,15 @@
 """
-Crop Disease Detection and Environmental Monitoring System
-Streamlit Web Application with Real-Time Hardware Telemetry & Serial Monitor
-"""
+Crop Disease Detection & Environmental Monitoring System
+UI refresh: professional navigation, botanical palette, and simulation/live sensor toggle.
 
-import os
-import json
-import time
-from datetime import datetime
+This file preserves the existing project APIs for model inference, sensors,
+SQLite persistence, and report generation.
+"""
+import html
 from pathlib import Path
-from PIL import Image
+
 import streamlit as st
+from PIL import Image
 
 from model import predict_leaf, CLASS_NAMES
 from sensors import (
@@ -20,134 +20,38 @@ from sensors import (
     SerialManager,
     DEFAULT_PORT,
     DEFAULT_BAUD,
-    DEFAULT_STALE_TIMEOUT
 )
 from database import (
     init_database,
     save_analysis,
     get_analysis_history,
     delete_analysis,
-    get_statistics
+    get_statistics,
 )
 from utils import (
     get_confidence_interpretation,
     generate_sample_leaf_image,
-    generate_text_report
+    generate_text_report,
 )
 
-# ------------------------------------------------------------
-# PAGE CONFIGURATION & STYLING
-# ------------------------------------------------------------
-
+# ---------------------------------------------------------------------
+# PAGE CONFIG
+# ---------------------------------------------------------------------
 st.set_page_config(
-    page_title="Crop Health & Real-Time Hardware Monitor",
-    page_icon="🌱",
+    page_title="Crop Health | Plant Intelligence",
+    page_icon="C",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed",
 )
 
-CUSTOM_CSS = """
-<style>
-    /* Global styles */
-    .main {
-        background-color: #fcfdfc;
-        color: #1e293b;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    }
-    
-    /* Card containers */
-    .metric-card {
-        background-color: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 20px;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-        margin-bottom: 16px;
-    }
-    
-    .status-badge {
-        display: inline-block;
-        padding: 5px 14px;
-        border-radius: 9999px;
-        font-size: 0.88rem;
-        font-weight: 600;
-        margin-bottom: 8px;
-    }
-    .badge-healthy {
-        background-color: #ecfdf5;
-        color: #065f46;
-        border: 1px solid #a7f3d0;
-    }
-    .badge-disease {
-        background-color: #fef2f2;
-        color: #991b1b;
-        border: 1px solid #fecaca;
-    }
-    .badge-sensor-esp {
-        background-color: #ecfdf5;
-        color: #065f46;
-        border: 1px solid #a7f3d0;
-    }
-    .badge-sensor-sim {
-        background-color: #fffbeb;
-        color: #92400e;
-        border: 1px solid #fde68a;
-    }
-    .badge-sensor-warn {
-        background-color: #fff7ed;
-        color: #c2410c;
-        border: 1px solid #fed7aa;
-    }
-    .badge-sensor-err {
-        background-color: #fef2f2;
-        color: #991b1b;
-        border: 1px solid #fecaca;
-    }
+PALETTE = {
+    "forest": "#007A33",
+    "leaf": "#4CAF50",
+    "sage": "#A5D6A7",
+    "amber": "#FFCC80",
+    "coral": "#FF8965",
+}
 
-    /* Hardware Serial Monitor Console */
-    .serial-terminal {
-        background-color: #0e1117;
-        color: #00ff66;
-        font-family: "Courier New", Courier, monospace;
-        padding: 14px;
-        border-radius: 8px;
-        height: 220px;
-        overflow-y: auto;
-        border: 1px solid #1e293b;
-        font-size: 0.88rem;
-        line-height: 1.4;
-        box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
-    }
-    .terminal-line {
-        margin: 2px 0;
-        white-space: pre-wrap;
-        word-break: break-all;
-    }
-    .terminal-err {
-        color: #ff4d4d;
-    }
-    .terminal-info {
-        color: #38bdf8;
-    }
-    
-    /* Section headers */
-    .section-title {
-        font-size: 1.25rem;
-        font-weight: 700;
-        color: #1b4332;
-        margin-bottom: 0.75rem;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-</style>
-"""
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
-
-# Initialize database schema if not present
-init_database()
-
-# Session state initialization
 if "operating_mode" not in st.session_state:
     st.session_state.operating_mode = "Simulation Mode"
 if "sensor_data" not in st.session_state:
@@ -157,338 +61,453 @@ if "last_analysis" not in st.session_state:
 if "current_image" not in st.session_state:
     st.session_state.current_image = None
 if "image_filename" not in st.session_state:
-    st.session_state.image_filename = "sample.jpg"
+    st.session_state.image_filename = "Selected leaf"
 if "selected_port" not in st.session_state:
     st.session_state.selected_port = DEFAULT_PORT
 if "selected_baud" not in st.session_state:
     st.session_state.selected_baud = DEFAULT_BAUD
 
 serial_mgr = SerialManager.get_instance()
+init_database()
 
-# ------------------------------------------------------------
-# SIDEBAR NAVIGATION & OPERATING MODE SELECTOR
-# ------------------------------------------------------------
+css_vars = """
+      --bg: #f7faf7; --surface: #ffffff; --surface-2: #edf5ee;
+      --text: #1b2b20; --muted: #5d7162; --border: #dce8de;
+      --primary: #007A33; --primary-strong: #006329; --soft: #e7f3e8;
+      --warning-bg: #FFF3DF; --warning-text: #704515;
+      --danger-bg: #FFF0EB; --danger-text: #873D2D;
+      --shadow: 0 8px 24px rgba(24,70,37,.06);
+    """
 
-with st.sidebar:
-    st.title("🌱 Plant Health Monitor")
-    st.caption("College Capstone ML + IoT Hardware Project")
-    st.markdown("---")
+st.markdown(
+    f"""
+    <style>
+    :root {{ {css_vars} }}
+    html, body, [data-testid="stAppViewContainer"] {{
+        background: var(--bg);
+        color: var(--text);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }}
+    [data-testid="stHeader"] {{ background: transparent; }}
+    [data-testid="stSidebar"] {{ display: none; }}
+    .block-container {{ max-width: 1440px; padding-top: 1.15rem; padding-bottom: 3rem; }}
+    h1, h2, h3, h4, p, label, span, div {{ color: inherit; }}
+    h1 {{ letter-spacing: -0.035em; font-weight: 750; }}
+    h2, h3 {{ letter-spacing: -0.02em; }}
+    .topbar {{
+        display:flex; align-items:center; justify-content:space-between; gap:1rem;
+        padding: 1rem 1.25rem; background:var(--surface);
+        border:1px solid var(--border); border-radius:18px;
+        box-shadow:var(--shadow); margin-bottom:1.1rem;
+    }}
+    .brand {{ display:flex; align-items:center; gap:.75rem; min-width:190px; }}
+    .brand-mark {{
+        width:42px; height:42px; border-radius:13px; display:flex;
+        align-items:center; justify-content:center; background:#e3f2e5;
+        color:#007A33; font-size:1.45rem;
+    }}
+    .brand-name {{ font-size:1.05rem; font-weight:800; color:var(--text); line-height:1.15; }}
+    .brand-sub {{ font-size:.76rem; color:var(--muted); margin-top:.2rem; }}
+    .eyebrow {{ color:var(--primary); text-transform:uppercase; letter-spacing:.12em;
+        font-size:.72rem; font-weight:800; }}
+    .muted {{ color:var(--muted); }}
+    .hero {{
+        padding:1.5rem 1.6rem; border:1px solid var(--border); border-radius:20px;
+        background:linear-gradient(120deg, var(--surface) 0%, var(--surface-2) 100%);
+        margin:.8rem 0 1.2rem;
+    }}
+    .hero h1 {{ font-size:clamp(1.65rem,3vw,2.35rem); margin:.3rem 0 .45rem; }}
+    .hero p {{ color:var(--muted); margin:0; max-width:780px; }}
+    .panel {{
+        background:var(--surface); border:1px solid var(--border);
+        border-radius:18px; padding:1.1rem 1.2rem; box-shadow:var(--shadow);
+        margin-bottom:1rem;
+    }}
+    .panel-title {{ font-size:1.04rem; font-weight:750; margin:0 0 .25rem; }}
+    .panel-caption {{ color:var(--muted); font-size:.86rem; margin-bottom:.8rem; }}
+    .status-pill {{
+        display:inline-flex; align-items:center; gap:.4rem; border-radius:999px;
+        padding:.38rem .72rem; font-size:.78rem; font-weight:750;
+        background:var(--soft); color:var(--primary); border:1px solid var(--border);
+    }}
+    .status-pill.sim {{ background:var(--warning-bg); color:var(--warning-text); }}
+    .status-pill.error {{ background:var(--danger-bg); color:var(--danger-text); }}
+    .metric-label {{ color:var(--muted); font-size:.82rem; font-weight:650; }}
+    .metric-value {{ font-size:1.65rem; font-weight:800; margin-top:.25rem; color:var(--text); }}
+    .metric-card {{
+        background:var(--surface); border:1px solid var(--border); border-radius:16px;
+        padding:1rem; min-height:108px; box-shadow:var(--shadow);
+    }}
+    .metric-icon {{ font-size:1.25rem; margin-bottom:.45rem; }}
+    .result-highlight {{
+        background:var(--surface-2); border:1px solid var(--border);
+        border-left:5px solid var(--primary); border-radius:14px;
+        padding:1rem 1.1rem; margin:.5rem 0 1rem;
+    }}
+    .small-note {{ color:var(--muted); font-size:.82rem; }}
+    .nav-shell {{
+        display:flex; align-items:center; gap:.35rem; flex-wrap:wrap;
+        background:var(--surface); border:1px solid var(--border);
+        border-radius:16px; padding:.45rem; box-shadow:var(--shadow);
+        margin:.35rem 0 1rem;
+    }}
+    .nav-caption {{
+        color:var(--muted); font-size:.72rem; font-weight:800;
+        letter-spacing:.09em; text-transform:uppercase;
+        margin:.15rem 0 .45rem;
+    }}
+    div.stButton > button, div.stDownloadButton > button {{
+        border-radius:11px; font-weight:700; min-height:2.65rem;
+        border:1px solid var(--border);
+    }}
+    /* Navigation buttons are styled as a real horizontal navbar, not radio controls. */
+    div[data-testid="stHorizontalBlock"] .stButton > button {{
+        transition: background .15s ease, border-color .15s ease;
+    }}
+    div.stButton > button[kind="primary"] {{
+        background:var(--primary); border-color:var(--primary); color:white;
+    }}
+    div.stButton > button[kind="primary"]:hover {{
+        background:var(--primary-strong); border-color:var(--primary-strong); color:white;
+    }}
+    [data-testid="stMetric"] {{
+        background:var(--surface); border:1px solid var(--border);
+        border-radius:14px; padding:.8rem 1rem;
+    }}
+    div[data-testid="stToggle"] {{ width: 100%; }}
+    [data-testid="stExpander"] {{
+        border:1px solid var(--border); border-radius:13px; overflow:hidden;
+    }}
+    [data-baseweb="tab-list"] {{ gap:.35rem; }}
+    [data-baseweb="tab"] {{ border-radius:10px 10px 0 0; }}
+    hr {{ border-color:var(--border); }}
+    @media (max-width: 760px) {{
+        .block-container {{ padding-left:1rem; padding-right:1rem; }}
+        .topbar {{ padding:.8rem; flex-wrap:wrap; }}
+        .brand {{ min-width:unset; }}
+        .nav-shell {{ padding:.35rem; }}
+        .mode-heading {{ text-align:left; margin-top:.35rem; }}
 
-    page = st.radio(
-        "Navigation",
-        ["Dashboard & Live Monitor", "Analysis History", "System Architecture & C++ Code"],
-        index=0
-    )
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-    st.markdown("---")
-    st.subheader("⚙️ System Operating Mode")
+# ---------------------------------------------------------------------
+# PROFESSIONAL NAVBAR AND OPERATING-MODE TOGGLE
+# ---------------------------------------------------------------------
+if "active_page" not in st.session_state:
+    st.session_state.active_page = "Dashboard"
 
-    # MUTUALLY EXCLUSIVE TWO-MODE SELECTOR
-    mode_options = ["Simulation Mode", "Live Sensor Mode"]
-    current_mode_index = mode_options.index(st.session_state.operating_mode) if st.session_state.operating_mode in mode_options else 0
+# Two navigation buttons on the left, operating mode grouped on the right.
+nav_cols = st.columns([1, 1.2, 1.8], gap="small", vertical_alignment="center")
 
-    chosen_mode = st.radio(
-        "Select Operating Mode:",
-        options=mode_options,
-        index=current_mode_index,
-        help="Select Simulation Mode for offline demonstration or Live Sensor Mode to read physical ESP32 measurements."
-    )
-
-    # Handle mode change safely
-    if chosen_mode != st.session_state.operating_mode:
-        st.session_state.operating_mode = chosen_mode
-        if chosen_mode == "Simulation Mode":
-            # Safely disconnect physical hardware when switching to simulation
-            serial_mgr.disconnect()
-            st.session_state.sensor_data = get_sensor_data(mode="simulation")
-        else:
-            # Switched to Live Sensor Mode: clear simulated readings immediately
-            st.session_state.sensor_data = None
-        st.rerun()
-
-    st.markdown("---")
-
-    # Mode-Specific Sidebar Controls
-    if st.session_state.operating_mode == "Live Sensor Mode":
-        st.subheader("🔌 Physical ESP32 Serial Settings")
-        
-        available_ports = list_available_ports()
-        port_choices = list(available_ports)
-        if DEFAULT_PORT not in port_choices:
-            port_choices.append(DEFAULT_PORT)
-        
-        port_idx = port_choices.index(st.session_state.selected_port) if st.session_state.selected_port in port_choices else 0
-        sel_port = st.selectbox("COM Port:", options=port_choices, index=port_idx)
-        st.session_state.selected_port = sel_port
-
-        baud_choices = [115200, 9600, 57600, 230400]
-        baud_idx = baud_choices.index(st.session_state.selected_baud) if st.session_state.selected_baud in baud_choices else 0
-        sel_baud = st.selectbox("Baud Rate:", options=baud_choices, index=baud_idx)
-        st.session_state.selected_baud = sel_baud
-
-        st.caption("Wiring: DHT22 -> GPIO 4 | HW-080 -> GPIO 34")
-
-        col_con1, col_con2 = st.columns(2)
-        with col_con1:
-            if st.button("🔌 Connect", use_container_width=True):
-                success, msg = serial_mgr.connect(sel_port, sel_baud)
-                if success:
-                    st.success(f"Connected to {sel_port}")
-                else:
-                    st.error(f"Connect failed: {msg}")
-                st.rerun()
-
-        with col_con2:
-            if st.button("❌ Disconnect", use_container_width=True):
-                serial_mgr.disconnect()
-                st.info("Serial disconnected.")
-                st.session_state.sensor_data = None
-                st.rerun()
-
-        col_poll1, col_poll2 = st.columns(2)
-        with col_poll1:
-            if st.button("🔄 Poll / Refresh", use_container_width=True):
-                st.session_state.sensor_data = get_sensor_data(
-                    mode="live",
-                    port=st.session_state.selected_port,
-                    baudrate=st.session_state.selected_baud
-                )
-                st.rerun()
-        with col_poll2:
-            if st.button("🗑️ Clear Logs", use_container_width=True):
-                serial_mgr.clear_logs()
-                st.rerun()
-
-    else:
-        # Simulation Mode Sidebar Info
-        st.subheader("🧪 Simulation Controls")
-        st.info(
-            "**Simulation Active**: Generating synthetic microclimate telemetry. "
-            "All readings are explicitly tagged as SIMULATED. Physical hardware is not polled."
-        )
-        if st.button("🔄 Generate Fresh Simulation Data", use_container_width=True):
-            st.session_state.sensor_data = get_sensor_data(mode="simulation")
+for col, page_name in zip(nav_cols[:2], ["Dashboard", "Analysis History"]):
+    with col:
+        if st.button(
+            page_name,
+            key=f"nav_{page_name.lower().replace(' ', '_')}",
+            type="primary" if st.session_state.active_page == page_name else "secondary",
+            use_container_width=True,
+        ):
+            st.session_state.active_page = page_name
             st.rerun()
 
-    st.markdown("---")
-    st.caption("ESP32 (GPIO 4 DHT22 + GPIO 34 HW-080) • EfficientNet-B4 • SQLite")
-
-
-# ------------------------------------------------------------
-# TAB 1: DASHBOARD & LIVE MONITOR
-# ------------------------------------------------------------
-
-if page == "Dashboard & Live Monitor":
-
-    st.header("Crop Disease Detection & Real-Time Environmental Telemetry")
+with nav_cols[2]:
     st.markdown(
-        "Multimodal crop diagnostics integrating **EfficientNet-B4 computer vision classification** "
-        "with **ESP32 physical microclimate telemetry** over USB Serial."
+        """
+        <div class="mode-heading"></div>
+        """,
+        unsafe_allow_html=True,
     )
-    st.markdown("---")
 
-    # Fetch latest sensor data according to the selected mode
-    if st.session_state.operating_mode == "Simulation Mode":
-        if st.session_state.sensor_data is None or st.session_state.sensor_data.get("source") != "Simulation":
+    # Center the complete toggle row beneath the heading.
+    left_space, toggle_area, right_space = st.columns(
+        [1, 2.4, 1],
+        gap="small",
+        vertical_alignment="center",
+    )
+    with toggle_area:
+        if "live_sensor_toggle" not in st.session_state:
+            st.session_state.live_sensor_toggle = (
+                st.session_state.operating_mode == "Live Sensor Mode"
+            )
+
+        live_enabled = st.toggle(
+            "Live Sensor Input",
+            key="live_sensor_toggle",
+            help="On: use readings from the connected ESP32. Off: use simulated readings.",
+        )
+
+    new_mode = "Live Sensor Mode" if live_enabled else "Simulation Mode"
+    if new_mode != st.session_state.operating_mode:
+        st.session_state.operating_mode = new_mode
+        st.session_state.sensor_data = None
+        if new_mode == "Simulation Mode":
+            serial_mgr.disconnect()
             st.session_state.sensor_data = get_sensor_data(mode="simulation")
-    else:
-        # Live Sensor Mode: Fetch from SerialManager without falling back to simulation
-        st.session_state.sensor_data = get_sensor_data(
-            mode="live",
-            port=st.session_state.selected_port,
-            baudrate=st.session_state.selected_baud
+        st.rerun()
+
+# Show a compact, explicit status line so the active mode is never ambiguous.
+if st.session_state.operating_mode == "Simulation Mode":
+    st.markdown(
+        '<span class="status-pill sim">● SIMULATION MODE</span> '
+        '<span class="small-note">Synthetic readings · hardware is not being polled.</span>',
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown(
+        '<span class="status-pill">● LIVE SENSOR MODE</span> '
+        '<span class="small-note">Uses validated readings from the connected ESP32 only.</span>',
+        unsafe_allow_html=True,
+    )
+
+
+# ---------------------------------------------------------------------
+# SHARED HELPERS
+# ---------------------------------------------------------------------
+def safe_num(value, suffix="", digits=1):
+    if value is None:
+        return "Unavailable"
+    try:
+        return f"{float(value):.{digits}f}{suffix}"
+    except (TypeError, ValueError):
+        return "Unavailable"
+
+
+def metric_card(label, value, note=""):
+    st.markdown(
+        f"""
+        <div class="metric-card">
+          <div class="metric-label">{html.escape(label)}</div>
+          <div class="metric-value">{html.escape(value)}</div>
+          <div class="small-note">{html.escape(note)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def show_sensor_controls():
+    if st.session_state.operating_mode != "Live Sensor Mode":
+        if st.button("Refresh simulated readings", key="refresh_sim"):
+            st.session_state.sensor_data = get_sensor_data(mode="simulation")
+            st.rerun()
+        return
+
+    ports = list(list_available_ports())
+    if DEFAULT_PORT not in ports:
+        ports.append(DEFAULT_PORT)
+    if not ports:
+        ports = [DEFAULT_PORT]
+
+    control1, control2, control3 = st.columns([2, 1, 1])
+    with control1:
+        port = st.selectbox(
+            "ESP32 serial port",
+            ports,
+            index=ports.index(st.session_state.selected_port)
+            if st.session_state.selected_port in ports else 0,
+            key="port_select",
         )
-
-    sensor_info = st.session_state.sensor_data or {}
-
-    # Two Main Columns: (Left: Leaf Input & Camera, Right: Telemetry & Serial Terminal)
-    col_img, col_sensor = st.columns([1, 1.1], gap="large")
-
-    # -----------------------------
-    # LEFT COLUMN: Image Input
-    # -----------------------------
-    with col_img:
-        st.markdown('<div class="section-title">🌿 Leaf Image Input</div>', unsafe_allow_html=True)
-        uploaded_file = st.file_uploader(
-            "Upload an image of a single crop leaf (JPG, JPEG, PNG)",
-            type=["jpg", "jpeg", "png"]
+        st.session_state.selected_port = port
+    with control2:
+        baud = st.selectbox(
+            "Baud rate",
+            [115200, 9600, 57600, 230400],
+            index=[115200, 9600, 57600, 230400].index(st.session_state.selected_baud)
+            if st.session_state.selected_baud in [115200, 9600, 57600, 230400] else 0,
+            key="baud_select",
         )
-
-        col_sample1, col_sample2 = st.columns(2)
-        with col_sample1:
-            if st.button("Use Sample Leaf (Healthy)", use_container_width=True):
-                st.session_state.current_image = generate_sample_leaf_image(plant="Tomato", healthy=True)
-                st.session_state.image_filename = "sample_tomato_healthy.jpg"
-        with col_sample2:
-            if st.button("Use Sample Leaf (Diseased)", use_container_width=True):
-                st.session_state.current_image = generate_sample_leaf_image(plant="Tomato", healthy=False)
-                st.session_state.image_filename = "sample_tomato_early_blight.jpg"
-
-        if uploaded_file is not None:
-            try:
-                st.session_state.current_image = Image.open(uploaded_file)
-                st.session_state.image_filename = uploaded_file.name
-            except Exception as e:
-                st.error(f"Failed to read image file: {e}")
-
-        if st.session_state.current_image is not None:
-            st.image(
-                st.session_state.current_image,
-                caption=f"Selected Leaf: {st.session_state.image_filename}",
-                use_container_width=True
-            )
-        else:
-            st.info("Please upload a leaf photograph or select a sample leaf to begin analysis.")
-
-    # -----------------------------
-    # RIGHT COLUMN: Telemetry & Serial Monitor
-    # -----------------------------
-    with col_sensor:
-        st.markdown('<div class="section-title">📡 Real-Time Environmental Telemetry</div>', unsafe_allow_html=True)
-
-        is_sim_mode = (st.session_state.operating_mode == "Simulation Mode")
-        source = sensor_info.get("source", "Unavailable")
-        temp = sensor_info.get("temperature_c")
-        hum = sensor_info.get("humidity_pct")
-        moist = sensor_info.get("soil_moisture_pct")
-        status_text = sensor_info.get("status", "Unknown")
-        conn_state = sensor_info.get("connection_state", "Disconnected")
-        data_age = sensor_info.get("data_age")
-        last_ts = sensor_info.get("timestamp")
-
-        # Visual Mode & Connection Status Badges
-        if is_sim_mode:
-            badge_html = '<span class="status-badge badge-sensor-sim">🟡 OPERATING MODE: SIMULATION (OFFLINE DEMO)</span>'
-            st.markdown(badge_html, unsafe_allow_html=True)
-            st.caption("Synthetic microclimate readings generated for offline testing without hardware.")
-        else:
-            # Live Sensor Mode: honest connection state display
-            if conn_state == "Connected" and source == "ESP32":
-                badge_html = f'<span class="status-badge badge-sensor-esp">🟢 LIVE SENSOR MODE: Connected ({st.session_state.selected_port} @ {st.session_state.selected_baud} baud)</span>'
-            elif conn_state == "Connecting":
-                badge_html = f'<span class="status-badge badge-sensor-warn">🟡 LIVE SENSOR MODE: Connecting / Awaiting Data ({st.session_state.selected_port})</span>'
-            elif conn_state == "Stale":
-                badge_html = f'<span class="status-badge badge-sensor-warn">🟠 LIVE SENSOR MODE: Stale Data ({data_age}s since last packet)</span>'
-            elif conn_state == "Error":
-                badge_html = f'<span class="status-badge badge-sensor-err">🔴 LIVE SENSOR MODE: Hardware Error ({sensor_info.get("error", "Unknown error")})</span>'
+        st.session_state.selected_baud = baud
+    with control3:
+        st.markdown("<div style='height:1.75rem'></div>", unsafe_allow_html=True)
+        if st.button("Connect", type="primary", use_container_width=True):
+            success, message = serial_mgr.connect(port, baud)
+            if success:
+                st.success(f"Serial connection opened for {port}. Waiting for a valid packet.")
             else:
-                badge_html = f'<span class="status-badge badge-sensor-err">🔴 LIVE SENSOR MODE: Disconnected ({st.session_state.selected_port})</span>'
-            
-            st.markdown(badge_html, unsafe_allow_html=True)
+                st.error(f"Could not connect: {message}")
+            st.rerun()
 
-            # Metadata strip for physical sensor connection
-            col_meta1, col_meta2, col_meta3 = st.columns(3)
-            with col_meta1:
-                st.caption(f"**Port**: `{st.session_state.selected_port}` ({st.session_state.selected_baud} baud)")
-            with col_meta2:
-                st.caption(f"**Last Packet**: `{last_ts or 'None'}`")
-            with col_meta3:
-                age_str = f"{data_age:.1f}s ago" if data_age is not None else "N/A"
-                st.caption(f"**Data Age**: `{age_str}`")
-
-        # Telemetry Metrics
-        m_col1, m_col2, m_col3 = st.columns(3)
-        sim_tag = " [SIMULATED]" if is_sim_mode else ""
-        with m_col1:
-            st.metric(
-                label=f"🌡️ Temperature{sim_tag}",
-                value=f"{temp:.1f} °C" if temp is not None else "Unavailable",
-                help="Ambient air temperature from DHT22 on GPIO 4"
+    a, b = st.columns(2)
+    with a:
+        if st.button("Refresh sensor data", use_container_width=True):
+            st.session_state.sensor_data = get_sensor_data(
+                mode="live", port=st.session_state.selected_port,
+                baudrate=st.session_state.selected_baud,
             )
-        with m_col2:
-            st.metric(
-                label=f"💧 Air Humidity{sim_tag}",
-                value=f"{hum:.1f} % RH" if hum is not None else "Unavailable",
-                help="Relative air humidity from DHT22 on GPIO 4"
-            )
-        with m_col3:
-            st.metric(
-                label=f"🌱 Soil Moisture{sim_tag}",
-                value=f"{moist:.1f} %" if moist is not None else "Unavailable",
-                help="Volumetric soil moisture percentage from HW-080 on GPIO 34"
-            )
+            st.rerun()
+    with b:
+        if st.button("Disconnect", use_container_width=True):
+            serial_mgr.disconnect()
+            st.session_state.sensor_data = None
+            st.info("ESP32 disconnected.")
+            st.rerun()
+    st.caption("Hardware: DHT22 → GPIO 4 · Soil moisture AO → GPIO 34 · Serial: USB")
 
-        # Validation warnings
-        if not is_sim_mode and source == "Unavailable":
-            st.warning("⚠️ Live sensor telemetry is currently unavailable. Ensure the ESP32 is flashed, connected to USB, and the correct COM port is opened.")
-        else:
-            sensor_warnings = validate_sensor_data(temp, moist, hum)
-            if sensor_warnings and source != "Unavailable":
-                for w in sensor_warnings:
-                    st.warning(f"⚠️ {w}")
 
-        # Hardware Serial Terminal Console
-        st.markdown("##### 💻 Hardware Serial Monitor Output")
-        logs = serial_mgr.get_logs() if not is_sim_mode else []
-        if is_sim_mode:
-            terminal_html = (
-                '<div class="serial-terminal">'
-                '<div class="terminal-line terminal-info">[Simulation Mode Active: Hardware serial polling is disabled.]</div>'
-                f'<div class="terminal-line">SIM_TX: {sensor_info.get("raw_line", "")}</div>'
-                '</div>'
-            )
-        elif not logs:
-            terminal_html = (
-                '<div class="serial-terminal">'
-                f'<div class="terminal-line terminal-info">[Serial Monitor initialized for {st.session_state.selected_port}]</div>'
-                '<div class="terminal-line">[Waiting for incoming JSON telemetry packets from ESP32...]</div>'
-                '</div>'
-            )
-        else:
-            lines_html = []
-            for log in logs:
-                css_cls = "terminal-err" if log["type"] == "err" else ("terminal-info" if log["type"] == "info" else "terminal-line")
-                lines_html.append(f'<div class="{css_cls}">[{log["timestamp"]}] {log["text"]}</div>')
-            terminal_html = f'<div class="serial-terminal">{"".join(lines_html)}</div>'
+def get_current_sensor_data():
+    if st.session_state.operating_mode == "Simulation Mode":
+        current = st.session_state.sensor_data
+        if not current or current.get("source") != "Simulation":
+            current = get_sensor_data(mode="simulation")
+            st.session_state.sensor_data = current
+        return current or {}
+    # Live mode must never fall back to simulation.
+    current = get_sensor_data(
+        mode="live",
+        port=st.session_state.selected_port,
+        baudrate=st.session_state.selected_baud,
+    )
+    st.session_state.sensor_data = current
+    return current or {}
 
-        st.markdown(terminal_html, unsafe_allow_html=True)
 
-        # Environmental Context Observations
-        obs, env_summary = analyze_environment(temp, moist, hum)
-        with st.expander("Microclimate Context & Environmental Assessment", expanded=True):
-            for ob in obs:
-                st.markdown(f"• {ob}")
-            st.caption(f"**Context**: {env_summary}")
+# ---------------------------------------------------------------------
+# DASHBOARD
+# ---------------------------------------------------------------------
+page = st.session_state.active_page
 
-    st.markdown("---")
+if page == "Dashboard":
+    st.markdown(
+        """
+        <div class="hero">
+          <div class="eyebrow">Crop monitoring workspace</div>
+          <h1>Understand your plant's health.</h1>
+          <p>Analyse a leaf image and review environmental readings in one place.
+          Sensor data provides context; the image classifier makes the disease-category prediction.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    # -----------------------------
-    # ANALYZE BUTTON
-    # -----------------------------
-    analyze_col1, analyze_col2, analyze_col3 = st.columns([1, 2, 1])
-    with analyze_col2:
-        analyze_clicked = st.button(
-            "🔍 Analyze Leaf & Correlate Environmental Telemetry",
-            type="primary",
-            use_container_width=True,
-            disabled=(st.session_state.current_image is None)
+    sensor_info = get_current_sensor_data()
+    is_sim = st.session_state.operating_mode == "Simulation Mode"
+    source = sensor_info.get("source", "Unavailable")
+    temp = sensor_info.get("temperature_c")
+    humidity = sensor_info.get("humidity_pct")
+    moisture = sensor_info.get("soil_moisture_pct")
+    conn_state = sensor_info.get("connection_state", "Disconnected")
+
+    if is_sim:
+        st.markdown('<span class="status-pill sim">SIMULATED ENVIRONMENTAL DATA</span>', unsafe_allow_html=True)
+    elif source == "ESP32" and conn_state == "Connected":
+        st.markdown(
+            f'<span class="status-pill">ESP32 CONNECTED · {html.escape(st.session_state.selected_port)}</span>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<span class="status-pill error">SENSOR DATA UNAVAILABLE</span>',
+            unsafe_allow_html=True,
+        )
+        st.warning(
+            "Live readings are not currently available. Connect the ESP32, select its COM port, "
+            "and refresh the sensor data. No simulated values are substituted in Live Sensor Mode."
         )
 
-    if analyze_clicked and st.session_state.current_image is not None:
-        with st.spinner("Classifying leaf with EfficientNet-B4 & capturing telemetry snapshot..."):
+    m1, m2, m3 = st.columns(3, gap="medium")
+    with m1:
+        metric_card("Air temperature" + (" · simulated" if is_sim else ""),
+                    safe_num(temp, " °C"), "DHT22 · GPIO 4")
+    with m2:
+        metric_card("Air humidity" + (" · simulated" if is_sim else ""),
+                    safe_num(humidity, " % RH"), "DHT22 · GPIO 4")
+    with m3:
+        metric_card("Soil moisture" + (" · simulated" if is_sim else ""),
+                    safe_num(moisture, " %"), "Analog sensor · GPIO 34")
+
+    if st.session_state.operating_mode == "Live Sensor Mode":
+        with st.expander("Sensor connection settings", expanded=False):
+            show_sensor_controls()
+    else:
+        with st.expander("Simulation settings", expanded=False):
+            st.write("Simulation mode uses synthetic values for demonstration only.")
+            show_sensor_controls()
+
+    st.markdown("### Leaf analysis")
+    upload_col, preview_col = st.columns([1, 1], gap="large")
+    with upload_col:
+        st.markdown('<div class="panel-title">Add a leaf photograph</div>', unsafe_allow_html=True)
+        st.caption("Use a clear image of one leaf. Supported formats: JPG, JPEG, PNG.")
+        uploaded = st.file_uploader(
+            "Choose a leaf image",
+            type=["jpg", "jpeg", "png"],
+            label_visibility="collapsed",
+            key="leaf_uploader",
+        )
+        sample_a, sample_b = st.columns(2)
+        with sample_a:
+            if st.button("Use healthy sample", use_container_width=True):
+                st.session_state.current_image = generate_sample_leaf_image(plant="Tomato", healthy=True)
+                st.session_state.image_filename = "Healthy sample"
+                st.rerun()
+        with sample_b:
+            if st.button("Use disease sample", use_container_width=True):
+                st.session_state.current_image = generate_sample_leaf_image(plant="Tomato", healthy=False)
+                st.session_state.image_filename = "Disease sample"
+                st.rerun()
+        if uploaded is not None:
             try:
-                # 1. Run ML leaf prediction
+                st.session_state.current_image = Image.open(uploaded).convert("RGB")
+                # Keep the filename internally for persistence, but do not display local paths.
+                st.session_state.image_filename = Path(uploaded.name).name
+            except Exception:
+                st.error("This image could not be opened. Please choose a valid JPG or PNG image.")
+
+    with preview_col:
+        st.markdown('<div class="panel-title">Image preview</div>', unsafe_allow_html=True)
+        if st.session_state.current_image is not None:
+            st.image(st.session_state.current_image, use_container_width=True)
+            st.caption("Selected leaf image")
+        else:
+            st.info("Your selected leaf image will appear here.")
+
+    can_analyze = st.session_state.current_image is not None
+    if st.button(
+        "Analyse leaf",
+        type="primary",
+        use_container_width=True,
+        disabled=not can_analyze,
+        key="analyse_leaf",
+    ):
+        with st.spinner("Analysing the leaf image…"):
+            try:
                 prediction = predict_leaf(st.session_state.current_image, top_k=5)
 
-                # 2. Capture latest environmental telemetry snapshot based on active mode
                 if st.session_state.operating_mode == "Simulation Mode":
-                    snapshot_sensors = get_sensor_data(mode="simulation")
-                    c_source = "Simulation"
+                    snapshot = get_sensor_data(mode="simulation")
+                    sensor_source = "Simulation"
                 else:
-                    snapshot_sensors = get_sensor_data(
+                    snapshot = get_sensor_data(
                         mode="live",
                         port=st.session_state.selected_port,
-                        baudrate=st.session_state.selected_baud
+                        baudrate=st.session_state.selected_baud,
                     )
-                    c_source = snapshot_sensors.get("source", "Unavailable")
+                    sensor_source = snapshot.get("source", "Unavailable")
 
-                c_temp = snapshot_sensors.get("temperature_c")
-                c_hum = snapshot_sensors.get("humidity_pct")
-                c_moist = snapshot_sensors.get("soil_moisture_pct")
-                c_obs, c_sum = analyze_environment(c_temp, c_moist, c_hum)
+                # Do not misrepresent missing live sensor data as a successful hardware capture.
+                if st.session_state.operating_mode == "Live Sensor Mode":
+                    valid_live = (
+                        sensor_source == "ESP32"
+                        and snapshot.get("temperature_c") is not None
+                        and snapshot.get("soil_moisture_pct") is not None
+                    )
+                    if not valid_live:
+                        st.warning(
+                            "The leaf prediction can still be reviewed, but a valid live sensor snapshot "
+                            "was unavailable. The result will be saved with sensor source 'Unavailable'."
+                        )
+                        sensor_source = "Unavailable"
 
-                # 3. Assemble structured analysis object
-                analysis_entry = {
+                c_temp = snapshot.get("temperature_c") if sensor_source != "Unavailable" else None
+                c_hum = snapshot.get("humidity_pct") if sensor_source != "Unavailable" else None
+                c_moist = snapshot.get("soil_moisture_pct") if sensor_source != "Unavailable" else None
+                observations, summary = analyze_environment(c_temp, c_moist, c_hum)
+
+                entry = {
                     "image_name": st.session_state.image_filename,
                     "plant": prediction["plant"],
                     "predicted_condition": prediction["condition"],
@@ -497,278 +516,159 @@ if page == "Dashboard & Live Monitor":
                     "temperature_c": c_temp,
                     "humidity_pct": c_hum,
                     "soil_moisture_pct": c_moist,
-                    "sensor_source": c_source,
-                    "top_predictions": prediction["top_predictions"],
-                    "environmental_observations": c_obs,
-                    "environmental_summary": c_sum,
-                    "image_status": prediction["image_status"]
+                    "sensor_source": sensor_source,
+                    "top_predictions": prediction.get("top_predictions", []),
+                    "environmental_observations": observations,
+                    "environmental_summary": summary,
+                    "image_status": prediction.get("image_status"),
                 }
+                record_id = save_analysis(entry)
+                entry["id"] = record_id
+                st.session_state.last_analysis = entry
+                st.success("Analysis completed and saved to history.")
+            except Exception as exc:
+                st.error(f"Analysis could not be completed: {exc}")
 
-                # 4. Save to SQLite database
-                inserted_id = save_analysis(analysis_entry)
-                analysis_entry["id"] = inserted_id
-                st.session_state.last_analysis = analysis_entry
-
-                st.success(f"Analysis completed and persisted to SQLite database (Record #{inserted_id})!")
-
-            except Exception as e:
-                st.error(f"Inference or analysis error encountered: {e}")
-
-    # -----------------------------
-    # DIAGNOSTIC RESULTS DISPLAY
-    # -----------------------------
-    if st.session_state.last_analysis is not None:
-        res = st.session_state.last_analysis
-        st.markdown("### Latest Diagnostic Report")
-
-        res_col1, res_col2 = st.columns([1.2, 1], gap="large")
-
-        with res_col1:
-            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-            st.markdown(f"#### Target Plant: **{res['plant']}**")
-            st.markdown(f"**Predicted Condition**: `{res['predicted_condition']}`")
-
-            conf_pct = res["confidence"] * 100
-            st.markdown(f"**Model Confidence**: **{conf_pct:.2f}%**")
-            st.progress(min(res["confidence"], 1.0))
-
-            # Status badge
-            if "healthy" in res["predicted_condition"].lower():
-                status_badge = '<span class="status-badge badge-healthy">Healthy Leaf Class</span>'
+    if st.session_state.last_analysis:
+        result = st.session_state.last_analysis
+        st.markdown("---")
+        st.markdown("### Latest result")
+        result_left, result_right = st.columns([1.1, 0.9], gap="large")
+        with result_left:
+            st.markdown('<div class="panel-title">Prediction</div>', unsafe_allow_html=True)
+            condition = str(result.get("predicted_condition", "Unknown"))
+            if "healthy" in condition.lower():
+                st.markdown('<span class="status-pill">HEALTHY CLASS PREDICTED</span>', unsafe_allow_html=True)
             else:
-                status_badge = '<span class="status-badge badge-disease">Potential Disease Detected</span>'
-            st.markdown(f"**Diagnostic Status**: {status_badge}", unsafe_allow_html=True)
-
-            conf_explanation = get_confidence_interpretation(res["confidence"])
-            st.caption(f"ℹ️ *Confidence Interpretation*: {conf_explanation}")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            # Top-5 Predictions
-            st.markdown("##### Candidate Predictions (Top 5)")
-            for pred in res.get("top_predictions", []):
-                p_label = pred.get("readable") or f"{pred.get('plant')} — {pred.get('condition')}"
-                p_conf = pred.get("confidence", 0.0) * 100
-                st.write(f"• **{p_label}**: `{p_conf:.2f}%`")
-                st.progress(min(pred.get("confidence", 0.0), 1.0))
-
-        with res_col2:
-            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-            st.markdown("#### Hardware Telemetry Snapshot")
-
-            r_temp = res.get("temperature_c")
-            r_hum = res.get("humidity_pct")
-            r_moist = res.get("soil_moisture_pct")
-            r_source = res.get("sensor_source", "Unavailable")
-
-            st.write(f"**Temperature (DHT22)**: {f'{r_temp:.1f} °C' if r_temp is not None else 'Unavailable'}")
-            st.write(f"**Air Humidity (DHT22)**: {f'{r_hum:.1f} % RH' if r_hum is not None else 'Unavailable'}")
-            st.write(f"**Soil Moisture (HW-080)**: {f'{r_moist:.1f} %' if r_moist is not None else 'Unavailable'}")
-            
-            # Explicit source tag
-            if r_source == "ESP32":
-                st.markdown("**Data Source**: <span class='status-badge badge-sensor-esp'>ESP32 Hardware (Validated)</span>", unsafe_allow_html=True)
-            elif r_source == "Simulation":
-                st.markdown("**Data Source**: <span class='status-badge badge-sensor-sim'>Simulation (Synthetic Demonstration)</span>", unsafe_allow_html=True)
+                st.markdown('<span class="status-pill sim">POTENTIAL DISEASE CLASS PREDICTED</span>', unsafe_allow_html=True)
+            st.markdown(f"<div class='result-highlight'><div class='eyebrow'>Predicted crop</div><h2>{html.escape(str(result.get('plant', 'Unknown')))}</h2><div><b>{html.escape(condition)}</b></div></div>", unsafe_allow_html=True)
+            confidence = float(result.get("confidence", 0.0))
+            st.write(f"**Model confidence:** {confidence * 100:.1f}%")
+            st.progress(max(0.0, min(1.0, confidence)))
+            st.caption(get_confidence_interpretation(confidence))
+            candidates = result.get("top_predictions", [])
+            if candidates:
+                with st.expander("Alternative predictions", expanded=False):
+                    for candidate in candidates:
+                        readable = candidate.get("readable") or f"{candidate.get('plant', '')} — {candidate.get('condition', '')}"
+                        score = float(candidate.get("confidence", 0.0))
+                        st.write(f"{readable} · {score * 100:.1f}%")
+                        st.progress(max(0.0, min(1.0, score)))
+        with result_right:
+            st.markdown('<div class="panel-title">Environmental snapshot</div>', unsafe_allow_html=True)
+            st.write(f"**Temperature:** {safe_num(result.get('temperature_c'), ' °C')}")
+            st.write(f"**Air humidity:** {safe_num(result.get('humidity_pct'), ' % RH')}")
+            st.write(f"**Soil moisture:** {safe_num(result.get('soil_moisture_pct'), ' %')}")
+            result_source = result.get("sensor_source", "Unavailable")
+            if result_source == "ESP32":
+                st.markdown('<span class="status-pill">SOURCE: ESP32 HARDWARE</span>', unsafe_allow_html=True)
+            elif result_source == "Simulation":
+                st.markdown('<span class="status-pill sim">SOURCE: SIMULATION</span>', unsafe_allow_html=True)
             else:
-                st.markdown("**Data Source**: <span class='status-badge badge-sensor-err'>Unavailable (Disconnected / Stale)</span>", unsafe_allow_html=True)
-
-            st.markdown("---")
-            st.markdown("**Correlated Microclimate Observations**:")
-            for ob in res.get("environmental_observations", []):
-                st.write(f"- {ob}")
-
-            st.info(
-                "**Academic Context Reminder**:\n"
-                "Sensor readings provide microclimate context for image-based disease prediction. "
-                "They should not be interpreted as biological proof of disease."
-            )
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            # Export Report Button
-            report_text = generate_text_report(res)
+                st.markdown('<span class="status-pill error">SOURCE: UNAVAILABLE</span>', unsafe_allow_html=True)
+            st.markdown("**Environmental context**")
+            for observation in result.get("environmental_observations", []):
+                st.write(f"• {observation}")
+            st.caption("Environmental readings provide context; they do not independently confirm a plant disease.")
+            report = generate_text_report(result)
             st.download_button(
-                label="📥 Download Full Health & Telemetry Report (.txt)",
-                data=report_text,
-                file_name=f"crop_health_report_{res.get('id', 'latest')}.txt",
+                "Download analysis report",
+                data=report,
+                file_name=f"crop_health_report_{result.get('id', 'latest')}.txt",
                 mime="text/plain",
-                use_container_width=True
+                use_container_width=True,
             )
 
-
-# ------------------------------------------------------------
-# TAB 2: ANALYSIS HISTORY
-# ------------------------------------------------------------
-
+# ---------------------------------------------------------------------
+# HISTORY
+# ---------------------------------------------------------------------
 elif page == "Analysis History":
-
-    st.header("Analysis History (SQLite Persistence)")
-    st.markdown("Browse, inspect, and export previous plant disease analyses stored in `crop_disease.db`.")
-    st.markdown("---")
-
-    # Overview Analytics Summary
+    st.markdown(
+        """
+        <div class="hero">
+          <div class="eyebrow">Your records</div>
+          <h1>Analysis history</h1>
+          <p>Review previous predictions, environmental snapshots, and exported reports.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     stats = get_statistics()
-    s_col1, s_col2, s_col3 = st.columns(3)
-    with s_col1:
-        st.metric("Total Analyses Logged", stats["total_analyses"])
-    with s_col2:
-        st.metric("Healthy Plant Cases", stats["healthy_count"])
-    with s_col3:
-        st.metric("Diseased Plant Cases", stats["diseased_count"])
-
-    st.markdown("---")
+    s1, s2, s3 = st.columns(3)
+    with s1:
+        st.metric("Total analyses", stats.get("total_analyses", 0))
+    with s2:
+        st.metric("Healthy-class predictions", stats.get("healthy_count", 0))
+    with s3:
+        st.metric("Potential disease predictions", stats.get("diseased_count", 0))
 
     records = get_analysis_history(limit=50)
-
     if not records:
-        st.info("No analysis records found in SQLite database yet. Perform an analysis on the Dashboard to populate history.")
+        st.info("No analyses have been saved yet. Run a leaf analysis from the Dashboard.")
     else:
-        # Search & Filter
-        fil_col1, fil_col2 = st.columns([2, 1])
-        with fil_col1:
-            search_query = st.text_input("Filter records by plant or disease condition:", "")
-        with fil_col2:
-            source_filter = st.selectbox("Filter by Sensor Source:", ["All Sources", "ESP32 Only", "Simulation Only"])
-
+        filter_col1, filter_col2 = st.columns([2, 1])
+        with filter_col1:
+            query = st.text_input("Search by crop or predicted condition", key="history_query")
+        with filter_col2:
+            source_filter = st.selectbox(
+                "Data source",
+                ["All sources", "ESP32 hardware", "Simulation", "Unavailable"],
+                key="history_source",
+            )
         filtered = records
-        if search_query:
+        if query:
             filtered = [
-                r for r in filtered
-                if search_query.lower() in r["plant"].lower() or search_query.lower() in r["predicted_condition"].lower()
+                row for row in filtered
+                if query.lower() in str(row.get("plant", "")).lower()
+                or query.lower() in str(row.get("predicted_condition", "")).lower()
             ]
-        if source_filter == "ESP32 Only":
-            filtered = [r for r in filtered if r.get("sensor_source") == "ESP32"]
-        elif source_filter == "Simulation Only":
-            filtered = [r for r in filtered if r.get("sensor_source") == "Simulation"]
-
-        st.caption(f"Showing {len(filtered)} of {len(records)} recorded analyses.")
-
+        source_map = {
+            "ESP32 hardware": "ESP32",
+            "Simulation": "Simulation",
+            "Unavailable": "Unavailable",
+        }
+        if source_filter in source_map:
+            filtered = [row for row in filtered if row.get("sensor_source", "Unavailable") == source_map[source_filter]]
+        st.caption(f"{len(filtered)} records shown")
         for row in filtered:
-            record_id = row["id"]
-            timestamp = row["timestamp"]
-            plant = row["plant"]
-            condition = row["predicted_condition"]
-            confidence = row["confidence"] * 100
-            temp = row["temperature_c"]
-            hum = row.get("humidity_pct")
-            moist = row["soil_moisture_pct"]
+            record_id = row.get("id")
+            timestamp = row.get("timestamp", "Unknown date")
+            plant = row.get("plant", "Unknown crop")
+            condition = row.get("predicted_condition", "Unknown condition")
+            confidence = float(row.get("confidence") or 0) * 100
             source = row.get("sensor_source", "Unavailable")
+            with st.expander(f"{timestamp}  ·  {plant} — {condition}  ·  {confidence:.1f}%"):
+                detail_col, sensor_col = st.columns([1.2, 1])
+                with detail_col:
+                    st.write(f"**Crop:** {plant}")
+                    st.write(f"**Prediction:** {condition}")
+                    st.write(f"**Confidence:** {confidence:.1f}%")
+                    candidates = row.get("top_predictions") or []
+                    if candidates:
+                        st.markdown("**Alternative predictions**")
+                        for candidate in candidates:
+                            readable = candidate.get("readable") or f"{candidate.get('plant', '')} — {candidate.get('condition', '')}"
+                            st.write(f"• {readable} ({float(candidate.get('confidence', 0))*100:.1f}%)")
+                with sensor_col:
+                    st.write(f"**Temperature:** {safe_num(row.get('temperature_c'), ' °C')}")
+                    st.write(f"**Air humidity:** {safe_num(row.get('humidity_pct'), ' % RH')}")
+                    st.write(f"**Soil moisture:** {safe_num(row.get('soil_moisture_pct'), ' %')}")
+                    st.write(f"**Source:** {source}")
+                    for observation in row.get("environmental_observations") or []:
+                        st.write(f"• {observation}")
+                st.download_button(
+                    "Export this report",
+                    data=generate_text_report(row),
+                    file_name=f"crop_health_report_{record_id}.txt",
+                    mime="text/plain",
+                    key=f"history_export_{record_id}",
+                )
+                if st.button("Delete record", key=f"history_delete_{record_id}"):
+                    delete_analysis(record_id)
+                    st.rerun()
 
-            with st.expander(f"#{record_id} | {timestamp} — {plant}: {condition} ({confidence:.1f}%) [{source}]"):
-                det_col1, det_col2 = st.columns([1.5, 1])
-
-                with det_col1:
-                    st.markdown(f"**Target Plant**: {plant}")
-                    st.markdown(f"**Condition**: `{condition}`")
-                    st.markdown(f"**Confidence**: `{confidence:.2f}%`")
-                    st.markdown(f"**Image Filename**: `{row.get('image_name', 'N/A')}`")
-
-                    if row.get("top_predictions"):
-                        st.markdown("**Top Alternative Predictions**:")
-                        for p in row["top_predictions"]:
-                            p_readable = p.get("readable") or f"{p.get('plant')} — {p.get('condition')}"
-                            st.write(f"- {p_readable} (`{p.get('confidence', 0.0) * 100:.2f}%`)")
-
-                with det_col2:
-                    st.markdown("**Hardware Telemetry**:")
-                    st.write(f"- Temp (DHT22): {f'{temp:.1f} °C' if temp is not None else 'N/A'}")
-                    st.write(f"- Air Humidity (DHT22): {f'{hum:.1f} %' if hum is not None else 'N/A'}")
-                    st.write(f"- Soil Moisture (HW-080): {f'{moist:.1f} %' if moist is not None else 'N/A'}")
-                    
-                    if source == "ESP32":
-                        st.markdown("- Source: <span class='status-badge badge-sensor-esp'>ESP32 Hardware</span>", unsafe_allow_html=True)
-                    elif source == "Simulation":
-                        st.markdown("- Source: <span class='status-badge badge-sensor-sim'>Simulation</span>", unsafe_allow_html=True)
-                    else:
-                        st.markdown(f"- Source: `{source}`")
-
-                    if row.get("environmental_observations"):
-                        st.markdown("**Observations**:")
-                        for ob in row["environmental_observations"]:
-                            st.write(f"• {ob}")
-
-                    # Export & Delete Actions
-                    rep_data = generate_text_report(row)
-                    st.download_button(
-                        label="📄 Export Report",
-                        data=rep_data,
-                        file_name=f"report_{record_id}.txt",
-                        mime="text/plain",
-                        key=f"dl_{record_id}"
-                    )
-
-                    if st.button("🗑️ Delete Record", key=f"del_{record_id}"):
-                        delete_analysis(record_id)
-                        st.warning(f"Record #{record_id} deleted.")
-                        st.rerun()
-
-
-# ------------------------------------------------------------
-# TAB 3: SYSTEM ARCHITECTURE & C++ CODE
-# ------------------------------------------------------------
-
-elif page == "System Architecture & C++ Code":
-
-    st.header("System Specifications & Microcontroller C++ Code")
-    st.markdown(
-        "Technical reference documentation for college project demonstration and viva evaluation."
-    )
-    st.markdown("---")
-
-    spec_col1, spec_col2 = st.columns(2)
-
-    with spec_col1:
-        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.markdown("#### 🧠 Machine Learning Subsystem")
-        st.markdown("""
-        - **Architecture**: `EfficientNet-B4` (Custom 2-layer classifier head)
-        - **Base Weights**: ImageNet pretraining + PlantVillage fine-tuning
-        - **Checkpoint**: `Khawajaa/plant-disease-detector` (`best_model.pth`)
-        - **Classes Covered**: 38 plant disease & healthy classes
-        - **Input Dimensions**: $3 \\times 224 \\times 224$ (RGB)
-        - **Preprocessing**: Resize(256) $\\rightarrow$ CenterCrop(224) $\\rightarrow$ ImageNet Normalization
-        - **Inference Engine**: PyTorch
-        - **Top-5 Evaluation**: Multi-class softmax ranking with calibrated confidence
-        """)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    with spec_col2:
-        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.markdown("#### 🔌 Hardware Pinout & Serial Protocol")
-        st.markdown("""
-        - **Microcontroller**: ESP32 Dev Module
-        - **Sensors & Wiring**:
-          1. **DHT22** (Temp & Air Humidity): Connected to **GPIO 4** (3.3V VCC)
-          2. **HW-080** (Soil Moisture Analog): Connected to **ADC GPIO 34** (3.3V VCC)
-        - **Voltage Caution**: All sensor inputs must use 3.3V. **Never apply 5V directly to ESP32 pins!**
-        - **Serial Configuration**: **115200 Baud** over USB Serial
-        - **Data Packet Format**: Newline-delimited JSON
-          ```json
-          {"temperature": 25.4, "humidity": 60.1, "soil_moisture": 45.2}
-          ```
-        - **Error Packet Format**:
-          ```json
-          {"error": "DHT22_read_failed", "soil_moisture": 45.2}
-          ```
-        - **Database Storage**: Embedded SQLite (`crop_disease.db`)
-        """)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown("---")
-    st.markdown("#### 🔬 ESP32 / Arduino Microcontroller C++ Sketch Code")
-    st.markdown("Flash this sketch using Arduino IDE to stream telemetry from DHT22 (GPIO 4) and Soil Moisture (GPIO 34):")
-
-    # Read sketch directly from firmware file if present
-    sketch_path = Path(__file__).resolve().parent / "firmware" / "esp32_dht22_soil" / "esp32_dht22_soil.ino"
-    if sketch_path.exists():
-        sketch_code = sketch_path.read_text(encoding="utf-8")
-    else:
-        sketch_code = "// Firmware sketch file not found."
-
-    st.code(sketch_code, language="cpp")
-
-    st.markdown("---")
-    st.markdown("#### 📋 38 Supported PlantVillage Classes")
-    with st.expander("Click to view all 38 classes"):
-        c_cols = st.columns(3)
-        for idx, cname in enumerate(CLASS_NAMES):
-            c_cols[idx % 3].write(f"{idx + 1}. `{cname}`")
+st.markdown("---")
+st.markdown(
+    '<div class="small-note"></div>',
+    unsafe_allow_html=True,
+)
