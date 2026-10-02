@@ -129,15 +129,5 @@ MICROCLIMATE ENVIRONMENTAL CONTEXT
 Summary Context:
 {summary}
 
-------------------------------------------------------------
-ACADEMIC DISCLAIMER & VIVA REFERENCE
-------------------------------------------------------------
-This system uses an EfficientNet-B4 deep convolutional network
-trained on the PlantVillage dataset to classify visual leaf symptoms.
-Microclimate measurements from the ESP32 (temperature, air humidity,
-soil moisture) provide environmental context regarding disease-favorable
-conditions; they do NOT constitute direct biological proof of pathogen
-presence. Always correlate with agricultural extension guidelines.
-============================================================
 """
     return report
