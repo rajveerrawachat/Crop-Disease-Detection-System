@@ -1,0 +1,23 @@
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local database
+*.db-journal
+
+# Local wrapper scripts
+powershell.cmd
+
+# Operating System files
+.DS_Store
+Thumbs.db
