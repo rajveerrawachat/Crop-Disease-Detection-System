@@ -12,11 +12,11 @@ def get_confidence_interpretation(confidence: float) -> str:
     Returns an academic and cautious interpretation of the model's confidence probability.
     """
     if confidence < 0.50:
-        return "Low model confidence. Manual inspection and validation are strongly recommended."
+        return "Low model confidence (<50%). Visual symptoms are ambiguous; manual extension inspection recommended."
     elif confidence < 0.75:
-        return "Moderate model confidence. The prediction should be verified manually."
+        return "Moderate model confidence (50%–75%). Visual symptoms align with candidate class; verify against field context."
     else:
-        return "Higher model confidence. The prediction should still be verified against the actual leaf sample."
+        return "High model confidence (>75%). Leaf visual features strongly correlate with trained class representations."
 
 
 def generate_sample_leaf_image(plant: str = "Tomato", healthy: bool = True) -> Image.Image:
@@ -41,7 +41,7 @@ def generate_sample_leaf_image(plant: str = "Tomato", healthy: bool = True) -> I
         draw.line([150, y, 90, y - 25], fill=vein_color, width=2)
         draw.line([150, y, 210, y - 25], fill=vein_color, width=2)
 
-    # If diseased, draw spots
+    # If diseased, draw necrosis/blight spots
     if not healthy:
         spot_color = (70, 40, 20)
         spots = [(100, 100, 15), (180, 120, 20), (130, 190, 18), (170, 210, 12)]
@@ -54,6 +54,7 @@ def generate_sample_leaf_image(plant: str = "Tomato", healthy: bool = True) -> I
 def generate_text_report(analysis: Dict[str, Any]) -> str:
     """
     Formats the analysis record into a comprehensive printable/exportable text report.
+    Clearly distinguishes physical ESP32 telemetry from Simulation data.
     """
     plant = analysis.get("plant", "Unknown")
     condition = analysis.get("predicted_condition") or analysis.get("condition", "Unknown")
@@ -69,9 +70,17 @@ def generate_text_report(analysis: Dict[str, Any]) -> str:
     summary = analysis.get("environmental_summary", "")
 
     temp_str = f"{temp:.1f} °C" if temp is not None else "Unavailable"
-    hum_str = f"{hum:.1f} %" if hum is not None else "Unavailable"
+    hum_str = f"{hum:.1f} % RH" if hum is not None else "Unavailable"
     moist_str = f"{moist:.1f} %" if moist is not None else "Unavailable"
     conf_msg = get_confidence_interpretation(conf)
+
+    # Distinct source labeling
+    if source == "ESP32":
+        source_label = "ESP32 Physical Microcontroller (Live Telemetry: GPIO 4 DHT22 + GPIO 34 HW-080)"
+    elif source == "Simulation":
+        source_label = "SIMULATED (Offline Demonstration Mode - No Physical Hardware)"
+    else:
+        source_label = f"Unavailable / Disconnected ({source})"
 
     top_preds_text = ""
     for i, p in enumerate(top_preds, start=1):
@@ -102,32 +111,33 @@ Confidence Note:
 {conf_msg}
 
 ------------------------------------------------------------
-TOP 5 CANDIDATE PREDICTIONS
+TOP CANDIDATE PREDICTIONS
 ------------------------------------------------------------
 {top_preds_text if top_preds_text else "No additional candidates recorded.\n"}
 ------------------------------------------------------------
-PHYSICAL SENSOR MEASUREMENTS (DHT22 & HW-080)
+PHYSICAL SENSOR MEASUREMENTS & TELEMETRY
 ------------------------------------------------------------
+Sensor Source           : {source_label}
 Temperature (DHT22)     : {temp_str}
 Air Humidity (DHT22)    : {hum_str}
 Soil Moisture (HW-080)  : {moist_str}
-Sensor Source           : {source}
 
 ------------------------------------------------------------
-ENVIRONMENTAL CONTEXT
+MICROCLIMATE ENVIRONMENTAL CONTEXT
 ------------------------------------------------------------
-{obs_text if obs_text else "No environmental observations.\n"}
+{obs_text if obs_text else "No environmental observations recorded.\n"}
 Summary Context:
 {summary}
 
 ------------------------------------------------------------
-ACADEMIC DISCLAIMER
+ACADEMIC DISCLAIMER & VIVA REFERENCE
 ------------------------------------------------------------
-This system uses a computer vision model trained on the PlantVillage
-dataset to classify visible leaf patterns. Physical sensor readings
-provide contextual environmental data and do not constitute direct
-biological proof of pathogen presence. Verification against field
-conditions and agricultural extension guidelines is recommended.
+This system uses an EfficientNet-B4 deep convolutional network
+trained on the PlantVillage dataset to classify visual leaf symptoms.
+Microclimate measurements from the ESP32 (temperature, air humidity,
+soil moisture) provide environmental context regarding disease-favorable
+conditions; they do NOT constitute direct biological proof of pathogen
+presence. Always correlate with agricultural extension guidelines.
 ============================================================
 """
     return report
